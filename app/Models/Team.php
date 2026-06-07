@@ -6,17 +6,24 @@ use App\Concerns\GeneratesUniqueTeamSlugs;
 use App\Enums\TeamRole;
 use Database\Factories\TeamFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 
-#[Fillable(['name', 'slug', 'is_personal'])]
+#[Fillable(['name', 'slug', 'is_personal', 'avatar_path'])]
 class Team extends Model
 {
     /** @use HasFactory<TeamFactory> */
     use GeneratesUniqueTeamSlugs, HasFactory, SoftDeletes;
+
+    /**
+     * The number of days a team invitation remains valid.
+     */
+    public const INVITATION_TTL_DAYS = 7;
 
     /**
      * Bootstrap the model and its traits.
@@ -79,6 +86,18 @@ class Team extends Model
     public function invitations(): HasMany
     {
         return $this->hasMany(TeamInvitation::class);
+    }
+
+    /**
+     * Get the publicly accessible URL for the team's avatar, if any.
+     *
+     * @return Attribute<?string, never>
+     */
+    protected function avatarUrl(): Attribute
+    {
+        return Attribute::get(fn (): ?string => $this->avatar_path
+            ? Storage::disk('public')->url($this->avatar_path)
+            : null);
     }
 
     /**

@@ -7,12 +7,15 @@ use App\Enums\TeamRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Teams\DeleteTeamRequest;
 use App\Http\Requests\Teams\SaveTeamRequest;
+use App\Http\Requests\Teams\TransferTeamOwnershipRequest;
+use App\Http\Requests\Teams\UpdateTeamAvatarRequest;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -27,6 +30,12 @@ class TeamController extends Controller
 
         return Inertia::render('teams/Index', [
             'teams' => $user->toUserTeams(includeCurrent: true),
+            'archivedTeams' => $user->archivedOwnedTeams()->map(fn (Team $team) => [
+                'id' => $team->id,
+                'name' => $team->name,
+                'slug' => $team->slug,
+                'avatarUrl' => $team->avatar_url,
+            ]),
         ]);
     }
 
@@ -55,6 +64,7 @@ class TeamController extends Controller
                 'name' => $team->name,
                 'slug' => $team->slug,
                 'isPersonal' => $team->is_personal,
+                'avatarUrl' => $team->avatar_url,
             ],
             'members' => $team->members()->get()->map(fn ($member) => [
                 'id' => $member->id,
@@ -75,6 +85,7 @@ class TeamController extends Controller
                     'created_at' => $invitation->created_at->toISOString(),
                 ]),
             'permissions' => $user->toTeamPermissions($team),
+            'canLeave' => $user->canLeaveTeam($team),
             'availableRoles' => TeamRole::assignable(),
         ]);
     }
@@ -112,11 +123,34 @@ class TeamController extends Controller
     }
 
     /**
-     * Delete the specified team.
+     * Transfer ownership of the team to another member.
      */
-    public function destroy(DeleteTeamRequest $request, Team $team): RedirectResponse
+    public function transferOwnership(TransferTeamOwnershipRequest $request, Team $team): RedirectResponse
+    {
+        DB::transaction(function () use ($request, $team) {
+            $currentOwner = $team->owner();
+            $newOwnerId = (int) $request->validated('user');
+
+            $team->memberships()->whereIn('user_id', [$currentOwner->id, $newOwnerId])->lockForUpdate()->get();
+
+            $team->memberships()->where('user_id', $newOwnerId)->update(['role' => TeamRole::Owner]);
+            $team->memberships()->where('user_id', $currentOwner->id)->update(['role' => TeamRole::Admin]);
+        });
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Team ownership transferred.')]);
+
+        return to_route('teams.edit', ['team' => $team->slug]);
+    }
+
+    /**
+     * Archive (soft delete) the specified team, preserving members and invitations.
+     */
+    public function archive(DeleteTeamRequest $request, Team $team): RedirectResponse
     {
         $user = $request->user();
+
+        abort_if($user->teams()->count() <= 1, 403, __('You cannot archive your last team.'));
+
         $fallbackTeam = $user->isCurrentTeam($team)
             ? $user->fallbackTeam($team)
             : null;
@@ -126,8 +160,6 @@ class TeamController extends Controller
                 ->where('id', '!=', $user->id)
                 ->each(fn (User $affectedUser) => $affectedUser->switchTeam($affectedUser->personalTeam()));
 
-            $team->invitations()->delete();
-            $team->memberships()->delete();
             $team->delete();
         });
 
@@ -135,8 +167,61 @@ class TeamController extends Controller
             $user->switchTeam($fallbackTeam);
         }
 
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('Team deleted.')]);
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Team archived.')]);
 
         return to_route('teams.index');
+    }
+
+    /**
+     * Restore an archived team.
+     */
+    public function restore(Request $request, string $teamSlug): RedirectResponse
+    {
+        $team = Team::onlyTrashed()->where('slug', $teamSlug)->firstOrFail();
+
+        Gate::authorize('restore', $team);
+
+        $team->restore();
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Team restored.')]);
+
+        return to_route('teams.edit', ['team' => $team->slug]);
+    }
+
+    /**
+     * Update the team's avatar image.
+     */
+    public function updateAvatar(UpdateTeamAvatarRequest $request, Team $team): RedirectResponse
+    {
+        $previousPath = $team->avatar_path;
+
+        $path = $request->file('avatar')->store('team-avatars', 'public');
+
+        $team->update(['avatar_path' => $path]);
+
+        if ($previousPath && $previousPath !== $path) {
+            Storage::disk('public')->delete($previousPath);
+        }
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Team avatar updated.')]);
+
+        return to_route('teams.edit', ['team' => $team->slug]);
+    }
+
+    /**
+     * Remove the team's avatar image.
+     */
+    public function destroyAvatar(Request $request, Team $team): RedirectResponse
+    {
+        Gate::authorize('update', $team);
+
+        if ($team->avatar_path) {
+            Storage::disk('public')->delete($team->avatar_path);
+            $team->update(['avatar_path' => null]);
+        }
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Team avatar removed.')]);
+
+        return to_route('teams.edit', ['team' => $team->slug]);
     }
 }

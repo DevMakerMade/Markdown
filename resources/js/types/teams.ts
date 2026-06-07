@@ -8,6 +8,14 @@ export type Team = {
     role?: TeamRole;
     roleLabel?: string;
     isCurrent?: boolean;
+    avatarUrl?: string | null;
+};
+
+export type ArchivedTeam = {
+    id: number;
+    name: string;
+    slug: string;
+    avatarUrl?: string | null;
 };
 
 export type TeamMember = {
@@ -35,6 +43,7 @@ export type TeamPermissions = {
     canRemoveMember: boolean;
     canCreateInvitation: boolean;
     canCancelInvitation: boolean;
+    canTransferOwnership: boolean;
 };
 
 export type RoleOption = {

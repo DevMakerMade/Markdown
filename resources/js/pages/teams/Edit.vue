@@ -1,13 +1,24 @@
 <script setup lang="ts">
 import { Form, Head, router } from '@inertiajs/vue3';
-import { ChevronDown, Mail, UserPlus, X } from '@lucide/vue';
+import {
+    ChevronDown,
+    LogOut,
+    Mail,
+    RotateCw,
+    UserCog,
+    UserPlus,
+    X,
+} from '@lucide/vue';
 import { computed, ref } from 'vue';
 import CancelInvitationModal from '@/components/CancelInvitationModal.vue';
 import DeleteTeamModal from '@/components/DeleteTeamModal.vue';
 import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
 import InviteMemberModal from '@/components/InviteMemberModal.vue';
+import LeaveTeamModal from '@/components/LeaveTeamModal.vue';
 import RemoveMemberModal from '@/components/RemoveMemberModal.vue';
+import TeamAvatarUploader from '@/components/TeamAvatarUploader.vue';
+import TransferOwnershipModal from '@/components/TransferOwnershipModal.vue';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -27,6 +38,7 @@ import {
 } from '@/components/ui/tooltip';
 import { useInitials } from '@/composables/useInitials';
 import { edit, index, update } from '@/routes/teams';
+import { resend as resendInvitationRoute } from '@/routes/teams/invitations';
 import { update as updateMember } from '@/routes/teams/members';
 import type {
     RoleOption,
@@ -41,6 +53,7 @@ type Props = {
     members: TeamMember[];
     invitations: TeamInvitation[];
     permissions: TeamPermissions;
+    canLeave: boolean;
     availableRoles: RoleOption[];
 };
 
@@ -65,6 +78,8 @@ const { getInitials } = useInitials();
 
 const inviteDialogOpen = ref(false);
 const deleteDialogOpen = ref(false);
+const transferDialogOpen = ref(false);
+const leaveDialogOpen = ref(false);
 const removeMemberDialogOpen = ref(false);
 const memberToRemove = ref<TeamMember | null>(null);
 const cancelInvitationDialogOpen = ref(false);
@@ -92,6 +107,12 @@ const confirmCancelInvitation = (invitation: TeamInvitation) => {
     invitationToCancel.value = invitation;
     cancelInvitationDialogOpen.value = true;
 };
+
+const resendInvitation = (invitation: TeamInvitation) => {
+    router.visit(resendInvitationRoute([props.team.slug, invitation.code]), {
+        preserveScroll: true,
+    });
+};
 </script>
 
 <template>
@@ -107,6 +128,11 @@ const confirmCancelInvitation = (invitation: TeamInvitation) => {
                 title="Team settings"
                 description="Update your team name and settings"
             />
+
+            <div class="grid gap-2">
+                <Label>Team avatar</Label>
+                <TeamAvatarUploader :team="team" />
+            </div>
 
             <Form
                 v-bind="update.form(team.slug)"
@@ -154,13 +180,24 @@ const confirmCancelInvitation = (invitation: TeamInvitation) => {
                     "
                 />
 
-                <Button
-                    v-if="permissions.canCreateInvitation"
-                    data-test="invite-member-button"
-                    @click="inviteDialogOpen = true"
-                >
-                    <UserPlus /> Invite member
-                </Button>
+                <div class="flex items-center gap-2">
+                    <Button
+                        v-if="permissions.canTransferOwnership"
+                        data-test="transfer-ownership-button"
+                        variant="outline"
+                        @click="transferDialogOpen = true"
+                    >
+                        <UserCog /> Transfer ownership
+                    </Button>
+
+                    <Button
+                        v-if="permissions.canCreateInvitation"
+                        data-test="invite-member-button"
+                        @click="inviteDialogOpen = true"
+                    >
+                        <UserPlus /> Invite member
+                    </Button>
+                </div>
             </div>
 
             <div class="space-y-3">
@@ -285,25 +322,61 @@ const confirmCancelInvitation = (invitation: TeamInvitation) => {
                         </div>
                     </div>
 
-                    <TooltipProvider v-if="permissions.canCancelInvitation">
-                        <Tooltip>
-                            <TooltipTrigger as-child>
-                                <Button
-                                    data-test="invitation-cancel-button"
-                                    variant="ghost"
-                                    size="sm"
-                                    @click="confirmCancelInvitation(invitation)"
-                                >
-                                    <X class="h-4 w-4" />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                                <p>Cancel invitation</p>
-                            </TooltipContent>
-                        </Tooltip>
+                    <TooltipProvider v-if="permissions.canCreateInvitation">
+                        <div class="flex items-center gap-1">
+                            <Tooltip>
+                                <TooltipTrigger as-child>
+                                    <Button
+                                        data-test="invitation-resend-button"
+                                        variant="ghost"
+                                        size="sm"
+                                        @click="resendInvitation(invitation)"
+                                    >
+                                        <RotateCw class="h-4 w-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>Resend invitation</p>
+                                </TooltipContent>
+                            </Tooltip>
+
+                            <Tooltip v-if="permissions.canCancelInvitation">
+                                <TooltipTrigger as-child>
+                                    <Button
+                                        data-test="invitation-cancel-button"
+                                        variant="ghost"
+                                        size="sm"
+                                        @click="
+                                            confirmCancelInvitation(invitation)
+                                        "
+                                    >
+                                        <X class="h-4 w-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>Cancel invitation</p>
+                                </TooltipContent>
+                            </Tooltip>
+                        </div>
                     </TooltipProvider>
                 </div>
             </div>
+        </div>
+
+        <!-- Leave Team -->
+        <div v-if="canLeave" class="space-y-6">
+            <Heading
+                variant="small"
+                title="Leave team"
+                description="Remove yourself from this team"
+            />
+            <Button
+                data-test="leave-team-button"
+                variant="outline"
+                @click="leaveDialogOpen = true"
+            >
+                <LogOut /> Leave team
+            </Button>
         </div>
 
         <!-- Danger Zone -->
@@ -364,5 +437,20 @@ const confirmCancelInvitation = (invitation: TeamInvitation) => {
         :team="team"
         :open="deleteDialogOpen"
         @update:open="deleteDialogOpen = $event"
+    />
+
+    <TransferOwnershipModal
+        v-if="permissions.canTransferOwnership"
+        :team="team"
+        :members="members"
+        :open="transferDialogOpen"
+        @update:open="transferDialogOpen = $event"
+    />
+
+    <LeaveTeamModal
+        v-if="canLeave"
+        :team="team"
+        :open="leaveDialogOpen"
+        @update:open="leaveDialogOpen = $event"
     />
 </template>
