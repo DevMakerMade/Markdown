@@ -45,23 +45,31 @@ function onFileChange(event: Event) {
     form.post(updateAvatar(props.team.slug).url, {
         preserveScroll: true,
         forceFormData: true,
-        onSuccess: () => form.reset('avatar'),
+        onSuccess: () => {
+            form.reset('avatar');
+            clearPreview();
+        },
     });
+}
+
+function clearPreview() {
+    if (previewUrl.value) {
+        URL.revokeObjectURL(previewUrl.value);
+        previewUrl.value = null;
+    }
 }
 
 function removeAvatar() {
     router.delete(destroyAvatar(props.team.slug).url, {
         preserveScroll: true,
-        onSuccess: () => {
-            previewUrl.value = null;
-        },
+        onSuccess: () => clearPreview(),
     });
 }
 </script>
 
 <template>
     <div class="flex items-center gap-4">
-        <Avatar class="h-16 w-16">
+        <Avatar :key="displayedAvatar ?? 'fallback'" class="h-16 w-16">
             <AvatarImage
                 v-if="displayedAvatar"
                 :src="displayedAvatar"
