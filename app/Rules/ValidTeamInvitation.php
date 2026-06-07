@@ -10,7 +10,7 @@ use Illuminate\Translation\PotentiallyTranslatedString;
 
 class ValidTeamInvitation implements ValidationRule
 {
-    public function __construct(protected ?User $user)
+    public function __construct(protected ?User $user, protected bool $allowExpired = false)
     {
         //
     }
@@ -34,7 +34,7 @@ class ValidTeamInvitation implements ValidationRule
             return;
         }
 
-        if ($value->isExpired()) {
+        if (! $this->allowExpired && $value->isExpired()) {
             $fail(__('This invitation has expired.'));
 
             return;

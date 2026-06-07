@@ -8,6 +8,7 @@ use App\Http\Requests\Teams\UpdateTeamMemberRequest;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 
@@ -52,5 +53,35 @@ class TeamMemberController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Member removed.')]);
 
         return to_route('teams.edit', ['team' => $team->slug]);
+    }
+
+    /**
+     * Leave the team as the current user.
+     */
+    public function leave(Request $request, Team $team): RedirectResponse
+    {
+        $user = $request->user();
+
+        abort_unless($user->belongsToTeam($team), 403);
+        abort_if($team->is_personal, 403, __('You cannot leave your personal team.'));
+        abort_if($user->teams()->count() <= 1, 403, __('You cannot leave your last team.'));
+        abort_if(
+            $user->ownsTeam($team) && $team->memberships()
+                ->where('role', TeamRole::Owner)
+                ->where('user_id', '!=', $user->id)
+                ->doesntExist(),
+            403,
+            __('Transfer ownership before leaving this team.'),
+        );
+
+        $team->memberships()->where('user_id', $user->id)->delete();
+
+        if ($user->isCurrentTeam($team)) {
+            $user->switchTeam($user->fallbackTeam($team));
+        }
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('You have left the team.')]);
+
+        return to_route('teams.index');
     }
 }

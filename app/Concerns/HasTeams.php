@@ -157,6 +157,7 @@ trait HasTeams
             role: $role?->value,
             roleLabel: $role?->label(),
             isCurrent: $this->isCurrentTeam($team),
+            avatarUrl: $team->avatar_url,
         );
     }
 
@@ -175,6 +176,7 @@ trait HasTeams
             canRemoveMember: $role?->hasPermission(TeamPermission::RemoveMember) ?? false,
             canCreateInvitation: $role?->hasPermission(TeamPermission::CreateInvitation) ?? false,
             canCancelInvitation: $role?->hasPermission(TeamPermission::CancelInvitation) ?? false,
+            canTransferOwnership: $this->canTransferOwnership($team),
         );
     }
 
@@ -192,5 +194,47 @@ trait HasTeams
     public function hasTeamPermission(Team $team, TeamPermission $permission): bool
     {
         return $this->teamRole($team)?->hasPermission($permission) ?? false;
+    }
+
+    /**
+     * Determine if the user can transfer ownership of the team.
+     */
+    public function canTransferOwnership(Team $team): bool
+    {
+        return ! $team->is_personal
+            && $this->ownsTeam($team)
+            && $team->memberships()->where('user_id', '!=', $this->id)->exists();
+    }
+
+    /**
+     * Determine if the user can leave the team.
+     */
+    public function canLeaveTeam(Team $team): bool
+    {
+        if ($team->is_personal || ! $this->belongsToTeam($team) || $this->teams()->count() <= 1) {
+            return false;
+        }
+
+        $isSoleOwner = $this->ownsTeam($team) && $team->memberships()
+            ->where('role', TeamRole::Owner)
+            ->where('user_id', '!=', $this->id)
+            ->doesntExist();
+
+        return ! $isSoleOwner;
+    }
+
+    /**
+     * Get the archived teams the user owns.
+     *
+     * @return Collection<int, Team>
+     */
+    public function archivedOwnedTeams(): Collection
+    {
+        return Team::onlyTrashed()
+            ->whereHas('memberships', fn ($query) => $query
+                ->where('user_id', $this->id)
+                ->where('role', TeamRole::Owner))
+            ->orderByRaw('LOWER(name)')
+            ->get();
     }
 }

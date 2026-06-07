@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Head, Link } from '@inertiajs/vue3';
-import { Eye, Pencil, Plus } from '@lucide/vue';
+import { Head, Link, router } from '@inertiajs/vue3';
+import { ArchiveRestore, Eye, Pencil, Plus } from '@lucide/vue';
 import CreateTeamModal from '@/components/CreateTeamModal.vue';
 import Heading from '@/components/Heading.vue';
 import { Badge } from '@/components/ui/badge';
@@ -11,14 +11,19 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { edit, index } from '@/routes/teams';
-import type { Team } from '@/types';
+import { edit, index, restore } from '@/routes/teams';
+import type { ArchivedTeam, Team } from '@/types';
 
 type Props = {
     teams: Team[];
+    archivedTeams: ArchivedTeam[];
 };
 
 defineProps<Props>();
+
+const restoreTeam = (team: ArchivedTeam) => {
+    router.visit(restore(team.slug), { preserveScroll: true });
+};
 
 defineOptions({
     layout: {
@@ -120,6 +125,44 @@ defineOptions({
             >
                 You don't belong to any teams yet.
             </p>
+        </div>
+
+        <!-- Archived Teams -->
+        <div v-if="archivedTeams.length > 0" class="space-y-3">
+            <Heading
+                variant="small"
+                title="Archived teams"
+                description="Restore a team to make it active again"
+            />
+
+            <div
+                v-for="team in archivedTeams"
+                :key="team.id"
+                data-test="archived-team-row"
+                class="flex items-center justify-between rounded-lg border p-4"
+            >
+                <span class="font-medium text-muted-foreground">{{
+                    team.name
+                }}</span>
+
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger as-child>
+                            <Button
+                                data-test="team-restore-button"
+                                variant="ghost"
+                                size="sm"
+                                @click="restoreTeam(team)"
+                            >
+                                <ArchiveRestore class="h-4 w-4" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            <p>Restore team</p>
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
+            </div>
         </div>
     </div>
 </template>
